@@ -1,56 +1,80 @@
 import React from 'react';
-import { ShieldCheck, Type, LogOut, Sparkles } from 'lucide-react';
+import { ShieldCheck, Type, LogOut, Sun, Moon, BadgeCheck } from 'lucide-react';
 
-export default function Header({ usuario, fonteGrande, setFonteGrande, handleLogout }) {
+export default function Header({
+  usuario,
+  fonteGrande,
+  setFonteGrande,
+  modoClaro,
+  setModoClaro,
+  handleLogout
+}) {
   return (
-    <header className="bg-slate-950/90 backdrop-blur-xl border-b border-slate-800/80 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-        
+    <header
+      className={`sticky top-0 z-30 border-b backdrop-blur-xl transition-colors duration-300 ${
+        modoClaro
+          ? 'bg-white/95 border-slate-200/90 shadow-sm'
+          : 'bg-slate-900/90 border-slate-800 shadow-lg'
+      }`}
+    >
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+        {/* Marca */}
         <div className="flex items-center gap-3.5">
-          <div className="relative flex items-center justify-center">
-            <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl blur-sm opacity-70"></div>
-            <div className="relative bg-slate-950 p-2.5 rounded-2xl border border-slate-700/50">
-              <ShieldCheck className="w-7 h-7 text-blue-400" />
-            </div>
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/25">
+            <ShieldCheck className="w-7 h-7" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-black tracking-tight text-white font-sans">
-                GolpeZero <span className="text-blue-500">50+</span>
-              </span>
-              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full tracking-wider uppercase">
-                <Sparkles className="w-3 h-3" /> Enterprise
+              <span className="font-black text-xl tracking-tight">GolpeZero 50+</span>
+              <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
+                <BadgeCheck className="w-3.5 h-3.5" /> Escudo Ativo
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 font-medium">Plataforma Inteligente de Prevenção a Fraudes</p>
+            <p className={`text-xs ${modoClaro ? 'text-slate-500' : 'text-slate-400'}`}>
+              Olá, <strong>{usuario?.nome}</strong> • Proteção Digital Simplificada
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        {/* Controles de Acessibilidade e Sessão */}
+        <div className="flex items-center gap-2.5">
           <button
-            onClick={() => setFonteGrande(!fonteGrande)}
-            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-300 border border-slate-800 transition-all cursor-pointer shadow-sm"
+            type="button"
+            onClick={() => setModoClaro(!modoClaro)}
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+              modoClaro
+                ? 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200'
+                : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+            }`}
           >
-            <Type className="w-4 h-4 text-blue-400" />
-            <span className="hidden md:inline">{fonteGrande ? 'Fonte Padrão' : 'Aumentar Fonte'}</span>
+            {modoClaro ? <Moon className="w-4 h-4 text-indigo-600" /> : <Sun className="w-4 h-4 text-amber-400" />}
+            <span className="hidden sm:inline">{modoClaro ? 'Tema Escuro' : 'Tema Claro'}</span>
           </button>
 
-          <div className="h-5 w-px bg-slate-800 hidden sm:block" />
-
-          {/* Encadeamento opcional ?. impede o erro caso 'usuario' esteja indefinido */}
-          <div className="text-right hidden sm:block">
-            <p className="font-bold text-slate-200 text-xs">{usuario?.nome || 'Usuário'}</p>
-            <p className="text-[10px] text-slate-400 font-mono">{usuario?.email || 'usuario@email.com'}</p>
-          </div>
+          <button
+            type="button"
+            onClick={() => setFonteGrande(!fonteGrande)}
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+              fonteGrande
+                ? 'bg-emerald-600 border-emerald-500 text-white shadow'
+                : modoClaro
+                  ? 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200'
+                  : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+            }`}
+          >
+            <Type className="w-4 h-4" />
+            <span>{fonteGrande ? 'Letra Normal' : 'A+ Letra Grande'}</span>
+          </button>
 
           <button
+            type="button"
             onClick={handleLogout}
-            className="p-2.5 bg-slate-900 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-xl border border-slate-800 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-extrabold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 border border-rose-500/25 transition cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Sair</span>
           </button>
         </div>
-
       </div>
     </header>
   );
