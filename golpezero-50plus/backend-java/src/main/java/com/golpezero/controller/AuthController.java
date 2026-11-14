@@ -2,12 +2,11 @@ package com.golpezero.controller;
 
 import com.golpezero.model.Usuario;
 import com.golpezero.repository.UsuarioRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -16,82 +15,81 @@ import java.util.Optional;
 @CrossOrigin(origins = "*")
 public class AuthController {
 
-    @Autowired
-    private UsuarioRepository usuarioRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    public AuthController(UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder) {
+        this.usuarioRepository = usuarioRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     @PostMapping("/cadastrar")
-    public ResponseEntity<?> cadastrar(@RequestBody Map<String, String> payload) {
+    public ResponseEntity<?> cadastrar(@RequestBody Map<String, String> body) {
         try {
-            String nome = payload.get("nome");
-            String email = payload.get("email");
-            String senha = payload.get("senha");
+            String nome = body.get("nome");
+            String email = body.get("email");
+            String senha = body.get("senha");
+            String perfil = body.getOrDefault("perfil", "USUARIO");
 
-            if (nome == null || nome.trim().isEmpty() || 
-                email == null || email.trim().isEmpty() || 
-                senha == null || senha.trim().isEmpty()) {
-                
-                Map<String, String> erro = new HashMap<>();
-                erro.put("mensagem", "Todos os campos são obrigatórios!");
-                return ResponseEntity.badRequest().body(erro);
+            if (nome == null || nome.isBlank() || email == null || email.isBlank() || senha == null || senha.length() < 6) {
+                return ResponseEntity.badRequest().body(Map.of("mensagem", "Preencha nome, e-mail e senha com no mínimo 6 caracteres."));
             }
 
             if (usuarioRepository.existsByEmailIgnoreCase(email.trim())) {
-                Map<String, String> erro = new HashMap<>();
-                erro.put("mensagem", "Este e-mail já está cadastrado!");
-                return ResponseEntity.badRequest().body(erro);
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("mensagem", "Este e-mail já está cadastrado."));
             }
 
-            Usuario novoUsuario = new Usuario(nome.trim(), email.trim().toLowerCase(), senha);
+            Usuario novoUsuario = new Usuario(
+                    nome.trim(),
+                    email.trim().toLowerCase(),
+                    passwordEncoder.encode(senha),
+                    perfil
+            );
+
             Usuario usuarioSalvo = usuarioRepository.save(novoUsuario);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("id", usuarioSalvo.getId());
-            response.put("nome", usuarioSalvo.getNome());
-            response.put("email", usuarioSalvo.getEmail());
-            response.put("mensagem", "Usuário cadastrado com sucesso!");
-
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-
+            return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
+                    "id", usuarioSalvo.getId(),
+                    "nome", usuarioSalvo.getNome(),
+                    "email", usuarioSalvo.getEmail(),
+                    "perfil", usuarioSalvo.getPerfil()
+            ));
         } catch (Exception e) {
-            e.printStackTrace(); // Imprime o erro detalhado no terminal do VS Code
-            Map<String, String> erro = new HashMap<>();
-            erro.put("mensagem", "Erro interno ao cadastrar: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(erro);
+            e.printStackTrace();
+            String detalhe = (e.getCause() != null) ? e.getCause().getMessage() : e.getMessage();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("mensagem", "Falha no banco de dados: " + detalhe));
         }
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> payload) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
         try {
-            String email = payload.get("email");
-            String senha = payload.get("senha");
+            String email = body.get("email");
+            String senha = body.get("senha");
 
             if (email == null || senha == null) {
-                Map<String, String> erro = new HashMap<>();
-                erro.put("mensagem", "Informe o e-mail e a senha!");
-                return ResponseEntity.badRequest().body(erro);
+                return ResponseEntity.badRequest().body(Map.of("mensagem", "Informe e-mail e senha."));
             }
 
             Optional<Usuario> usuarioOpt = usuarioRepository.findByEmailIgnoreCase(email.trim());
 
-            if (usuarioOpt.isPresent() && usuarioOpt.get().getSenha().equals(senha)) {
-                Usuario usuario = usuarioOpt.get();
-                Map<String, Object> response = new HashMap<>();
-                response.put("id", usuario.getId());
-                response.put("nome", usuario.getNome());
-                response.put("email", usuario.getEmail());
-                return ResponseEntity.ok(response);
+            if (usuarioOpt.isEmpty() || !passwordEncoder.matches(senha, usuarioOpt.get().getSenha())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("mensagem", "E-mail ou senha incorretos."));
             }
 
-            Map<String, String> erro = new HashMap<>();
-            erro.put("mensagem", "E-mail ou senha incorretos!");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(erro);
+            Usuario usuario = usuarioOpt.get();
 
+            return ResponseEntity.ok(Map.of(
+                    "id", usuario.getId(),
+                    "nome", usuario.getNome(),
+                    "email", usuario.getEmail(),
+                    "perfil", usuario.getPerfil() != null ? usuario.getPerfil() : "USUARIO"
+            ));
         } catch (Exception e) {
             e.printStackTrace();
-            Map<String, String> erro = new HashMap<>();
-            erro.put("mensagem", "Erro interno no login: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(erro);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("mensagem", "Erro ao autenticar: " + e.getMessage()));
         }
     }
 }

@@ -30,52 +30,77 @@ export default function Auth({ onLoginSuccess }) {
     e.preventDefault();
     setErro('');
     setSucesso('');
+
+    const nomeLimpo = formData.nome.trim();
+    const emailLimpo = formData.email.trim().toLowerCase();
+    const senhaDigitada = formData.senha;
+
+    if (!emailLimpo || !emailLimpo.includes('@')) {
+      setErro('Informe um e-mail válido.');
+      return;
+    }
+
+    if (senhaDigitada.length < 6) {
+      setErro('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    if (!isLogin && nomeLimpo.length < 3) {
+      setErro('Informe seu nome completo (mínimo 3 letras).');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const endpoint = isLogin ? `${API_URL}/login` : `${API_URL}/cadastrar`;
+      if (isLogin) {
+        const response = await axios.post(`${API_URL}/login`, {
+          email: emailLimpo,
+          senha: senhaDigitada
+        });
 
-      const payload = isLogin
-        ? {
-            email: formData.email.trim(),
-            senha: formData.senha
-          }
-        : {
-            nome: formData.nome.trim(),
-            email: formData.email.trim(),
-            senha: formData.senha,
-            perfil: 'USUARIO'
-          };
-
-      const response = await axios.post(endpoint, payload);
-
-      const dadosCompletos = {
-        ...response.data,
-        nome: response.data?.nome || formData.nome || formData.email.split('@')[0],
-        email: response.data?.email || formData.email,
-        tipoUso: tipoUsoLocal
-      };
-
-      if (!isLogin) {
-        setSucesso('Conta criada com sucesso! Preparando seu escudo...');
-        setTimeout(() => {
-          onLoginSuccess(dadosCompletos);
-        }, 800);
+        onLoginSuccess({
+          ...response.data,
+          nome: response.data?.nome || emailLimpo.split('@')[0],
+          email: response.data?.email || emailLimpo
+        });
       } else {
-        onLoginSuccess(dadosCompletos);
+        const response = await axios.post(`${API_URL}/cadastrar`, {
+          nome: nomeLimpo,
+          email: emailLimpo,
+          senha: senhaDigitada,
+          perfil: 'USUARIO'
+        });
+
+        setSucesso('Conta criada com sucesso! Entrando no painel...');
+        setTimeout(() => {
+          onLoginSuccess({
+            ...response.data,
+            nome: response.data?.nome || nomeLimpo,
+            email: response.data?.email || emailLimpo,
+            tipoUso: tipoUsoLocal
+          });
+        }, 700);
       }
     } catch (err) {
-      const status = err.response?.status;
-      const msgBackend = err.response?.data?.mensagem;
-
-      if (msgBackend) {
-        setErro(msgBackend);
-      } else if (status === 500) {
-        setErro('Este e-mail já pode estar cadastrado ou ocorreu um erro interno. Tente entrar na aba "Entrar na Conta".');
-      } else if (status === 401) {
-        setErro('E-mail ou senha incorretos.');
+      if (!err.response) {
+        setErro('Servidor backend offline (porta 8080). Inicie o Spring Boot e tente novamente.');
       } else {
-        setErro('Não foi possível conectar ao servidor backend (porta 8080).');
+        const status = err.response.status;
+        const data = err.response.data;
+        const msg =
+          (typeof data === 'string' && data) ||
+          data?.mensagem ||
+          data?.message ||
+          data?.error;
+
+        if (status === 401 || status === 403) {
+          setErro(msg || 'E-mail ou senha incorretos.');
+        } else if (status === 400 || status === 409) {
+          setErro(msg || 'Dados inválidos ou e-mail já cadastrado.');
+        } else {
+          setErro(`Erro ${status} no servidor: ${msg || 'Verifique o console do backend Java.'}`);
+        }
       }
     } finally {
       setLoading(false);
@@ -89,10 +114,8 @@ export default function Auth({ onLoginSuccess }) {
 
       <div className="max-w-5xl w-full bg-slate-900/90 backdrop-blur-2xl border border-slate-800 rounded-[2rem] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.75)] overflow-hidden grid grid-cols-1 lg:grid-cols-12 relative z-10">
         
-        {/* Lado Esquerdo: Apresentação e Segurança */}
+        {/* Lado Esquerdo */}
         <div className="lg:col-span-5 bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 p-8 lg:p-11 flex flex-col justify-between text-white relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/3 blur-2xl" />
-
           <div className="relative z-10">
             <div className="inline-flex items-center gap-3 bg-white/15 backdrop-blur-md border border-white/20 px-4 py-2 rounded-2xl mb-8 shadow-sm">
               <ShieldCheck className="w-7 h-7 text-emerald-200" />
@@ -123,7 +146,7 @@ export default function Auth({ onLoginSuccess }) {
           </div>
         </div>
 
-        {/* Lado Direito: Formulário de Login e Cadastro */}
+        {/* Lado Direito */}
         <div className="lg:col-span-7 p-8 lg:p-12 flex flex-col justify-center">
           <div className="mb-6">
             <h2 className="text-2xl font-extrabold text-white">
@@ -131,12 +154,11 @@ export default function Auth({ onLoginSuccess }) {
             </h2>
             <p className="text-slate-400 text-sm mt-1">
               {isLogin
-                ? 'Entre com seu e-mail e senha para acessar sua proteção.'
-                : 'Preencha os dados abaixo em menos de 1 minuto.'}
+                ? 'Entre com seu e-mail e senha cadastrados no banco de dados.'
+                : 'Preencha os dados abaixo para registrar sua conta.'}
             </p>
           </div>
 
-          {/* Seletor Entrar / Criar Conta */}
           <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-7">
             <button
               type="button"
@@ -163,15 +185,15 @@ export default function Auth({ onLoginSuccess }) {
           </div>
 
           {erro && (
-            <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-200 flex items-start gap-3 text-sm sm:text-base">
-              <AlertCircle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
+            <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-200 flex items-start gap-3 text-sm">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
               <span>{erro}</span>
             </div>
           )}
 
           {sucesso && (
-            <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-200 flex items-start gap-3 text-sm sm:text-base">
-              <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-200 flex items-start gap-3 text-sm">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
               <span>{sucesso}</span>
             </div>
           )}
@@ -192,7 +214,7 @@ export default function Auth({ onLoginSuccess }) {
                       value={formData.nome}
                       onChange={handleChange}
                       placeholder="Ex: Maria Helena da Silva"
-                      className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/15 rounded-2xl py-3.5 pl-12 pr-4 text-base text-white placeholder-slate-500 outline-none transition"
+                      className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 rounded-2xl py-3.5 pl-12 pr-4 text-base text-white placeholder-slate-500 outline-none"
                     />
                   </div>
                 </div>
@@ -205,10 +227,10 @@ export default function Auth({ onLoginSuccess }) {
                     <button
                       type="button"
                       onClick={() => setTipoUsoLocal('USUARIO_50_MAIS')}
-                      className={`p-3.5 rounded-2xl border text-left flex items-center gap-3 transition cursor-pointer ${
+                      className={`p-3.5 rounded-2xl border text-left flex items-center gap-3 cursor-pointer ${
                         tipoUsoLocal === 'USUARIO_50_MAIS'
                           ? 'bg-emerald-600/15 border-emerald-500 text-white'
-                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400'
                       }`}
                     >
                       <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0" />
@@ -221,10 +243,10 @@ export default function Auth({ onLoginSuccess }) {
                     <button
                       type="button"
                       onClick={() => setTipoUsoLocal('FAMILIAR')}
-                      className={`p-3.5 rounded-2xl border text-left flex items-center gap-3 transition cursor-pointer ${
+                      className={`p-3.5 rounded-2xl border text-left flex items-center gap-3 cursor-pointer ${
                         tipoUsoLocal === 'FAMILIAR'
                           ? 'bg-blue-600/15 border-blue-500 text-white'
-                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400'
                       }`}
                     >
                       <HeartHandshake className="w-6 h-6 text-blue-400 shrink-0" />
@@ -251,7 +273,7 @@ export default function Auth({ onLoginSuccess }) {
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="seuemail@exemplo.com"
-                  className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/15 rounded-2xl py-3.5 pl-12 pr-4 text-base text-white placeholder-slate-500 outline-none transition"
+                  className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 rounded-2xl py-3.5 pl-12 pr-4 text-base text-white placeholder-slate-500 outline-none"
                 />
               </div>
             </div>
@@ -269,7 +291,7 @@ export default function Auth({ onLoginSuccess }) {
                   value={formData.senha}
                   onChange={handleChange}
                   placeholder={isLogin ? 'Digite sua senha' : 'Mínimo 6 caracteres'}
-                  className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/15 rounded-2xl py-3.5 pl-12 pr-12 text-base text-white placeholder-slate-500 outline-none transition"
+                  className="w-full bg-slate-950 border border-slate-700/80 focus:border-emerald-500 rounded-2xl py-3.5 pl-12 pr-12 text-base text-white placeholder-slate-500 outline-none"
                 />
                 <button
                   type="button"
@@ -287,7 +309,7 @@ export default function Auth({ onLoginSuccess }) {
               className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:brightness-110 disabled:opacity-50 text-white font-extrabold text-lg py-4 rounded-2xl shadow-xl shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer mt-2"
             >
               {loading ? (
-                <span>Conectando com segurança...</span>
+                <span>Autenticando no servidor...</span>
               ) : (
                 <>
                   <Sparkles className="w-5 h-5" />
