@@ -1,7 +1,11 @@
+
 package com.golpezero.service;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -9,37 +13,87 @@ import java.util.Map;
 public class AnaliseService {
 
     public Map<String, Object> analisarMensagem(String mensagem) {
-        Map<String, Object> resultado = new HashMap<>();
-
         try {
-            // Tentativa de envio para o microserviço de IA na porta 5000
             RestTemplate restTemplate = new RestTemplate();
-            String aiUrl = "http://localhost:5000/predict"; // Verifique a rota da sua IA (ex: /predict ou /analisar)
 
-            // Estrutura enviada para o Python
+            // Endpoint real da IA Python
+            String aiUrl = "http://localhost:5000/api/analisar";
+
             Map<String, String> payload = new HashMap<>();
             payload.put("mensagem", mensagem);
 
-            // Chamada para a IA em Python
-            Map<?, ?> aiResponse = restTemplate.postForObject(aiUrl, payload, Map.class);
+            Map<?, ?> aiResponse = restTemplate.postForObject(
+                aiUrl,
+                payload,
+                Map.class
+            );
 
-            if (aiResponse != null) {
-                resultado.putAll((Map<String, Object>) aiResponse);
-                return resultado;
+            if (aiResponse == null) {
+                throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "A IA não retornou uma resposta."
+                );
             }
 
-        } catch (Exception e) {
-            System.err.println("Aviso: Falha ao comunicar com o serviço de IA em Python: " + e.getMessage());
-        }
+            // Preserva todos os campos da IA para o Flutter
+            Map<String, Object> resultado = new HashMap<>();
 
-        // Fallback caso a IA na porta 5000 falhe ou esteja com rota incompatível
-        resultado.put("status", "analisado_com_sucesso");
-        resultado.put("mensagemAnalisada", mensagem);
-        resultado.put("probabilidadeGolpe", 0.92);
-        resultado.put("suspeito", true);
-        resultado.put("classificacao", "GOLPE DE FALSO PAGAMENTO / PIX");
-        resultado.put("recomendacao", "Atenção! Esta mensagem possui forte padrão de fraude financeira. Não clique em links nem realize transferências.");
-        
-        return resultado;
+            for (Map.Entry<?, ?> entry : aiResponse.entrySet()) {
+                resultado.put(
+                    String.valueOf(entry.getKey()),
+                    entry.getValue()
+                );
+            }
+
+            // Converte a pontuação heurística para os campos
+            // esperados pelo frontend React
+            Object scoreValue = resultado.get("score_suspeita");
+
+            if (!(scoreValue instanceof Number)) {
+                throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "A IA retornou uma pontuação inválida."
+                );
+            }
+
+            double score = ((Number) scoreValue).doubleValue();
+
+            if (!Double.isFinite(score) || score < 0 || score > 100) {
+                throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "A pontuação da IA está fora do intervalo esperado."
+                );
+            }
+
+            String classificacaoIA = String.valueOf(
+    resultado.get("classificacao")
+);
+
+          resultado.put(
+       "suspeito",
+            "SUSPEITO".equals(classificacaoIA)
+                || "ALTO_RISCO".equals(classificacaoIA)
+);
+            resultado.put("probabilidadeGolpe", score / 100.0);
+
+            resultado.put("status", "analisado_com_sucesso");
+            resultado.put("mensagemAnalisada", mensagem);
+
+            return resultado;
+
+        } catch (ResponseStatusException e) {
+            throw e;
+
+        } catch (Exception e) {
+            System.err.println(
+                "Erro ao comunicar com a IA Python: " + e.getMessage()
+            );
+
+            throw new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "O serviço de análise está temporariamente indisponível.",
+                e
+            );
+        }
     }
 }

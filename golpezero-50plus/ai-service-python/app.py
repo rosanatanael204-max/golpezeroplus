@@ -1,55 +1,147 @@
+
+from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import joblib
 import re
+import unicodedata
+
+BASE = Path(__file__).resolve().parent
+
+MODELO_V1 = BASE / "modelos" / "classificador.joblib"
+MODELO_V2 = BASE / "modelos" / "classificador_v2.joblib"
+
+# Usa V2 quando disponível, preservando a V1 como alternativa.
+MODELO_PATH = MODELO_V2 if MODELO_V2.exists() else MODELO_V1
+
+if not MODELO_PATH.exists():
+    raise RuntimeError("Nenhum modelo treinado foi encontrado.")
+
+modelo = joblib.load(MODELO_PATH)
+versao_modelo = "v2" if MODELO_PATH == MODELO_V2 else "v1"
 
 app = Flask(__name__)
 CORS(app)
 
-# Regras heurísticas para identificação de padrões de golpe
-REGRAS_GOLPE = [
-    (r"(urgente|imediatamente|bloqueio|cancelamento|ultima chance)", "Senso de urgência para causar ansiedade."),
-    (r"(pix|transferencia|pagamento|deposito|boleto|taxa)", "Solicitação de transferência financeira ou pagamento."),
-    (r"(senha|token|codigo|cpf|dados|cartao|cvv)", "Pedido de dados bancários, senhas ou verificação de conta."),
-    (r"(ganhou|premio|sorteio|resgatar|beneficio|liberacao)", "Promessa irreal de prêmios ou benefícios."),
-    (r"(http://|https://|bit\.ly|t\.co|wa\.me)", "Presença de links externos suspeitos."),
-    (r"(filho|mae|pai|troquei de numero|preciso de dinheiro)", "Indício de golpe do falso parente no WhatsApp.")
-]
 
-@app.route('/api/analisar', methods=['POST'])
+def normalizar_texto(texto):
+    texto = texto.lower().strip()
+
+    texto = "".join(
+        caractere
+        for caractere in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(caractere) != "Mn"
+    )
+
+    return re.sub(r"\s+", " ", texto)
+
+
+def mensagem_insuficiente(mensagem):
+    texto = normalizar_texto(mensagem)
+    texto = re.sub(r"[!?.]+$", "", texto).strip()
+
+    expressoes = {
+        "oi", "oii", "oiii", "ola",
+        "bom dia", "boa tarde", "boa noite",
+        "tudo bem", "e ai", "opa",
+        "hello", "teste"
+    }
+
+    if texto in expressoes:
+        return True
+
+    if len(texto) < 4:
+        return True
+
+    return False
+
+
+@app.get("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "modelo": "tfidf_regressao_logistica",
+        "versao": versao_modelo
+    })
+
+
+@app.post("/api/analisar")
 def analisar():
-    dados = request.get_json() or {}
-    texto = dados.get('mensagem', '').lower()
+    dados = request.get_json(silent=True)
 
-    if not texto:
-        return jsonify({"erro": "Texto vazio"}), 400
+    if not isinstance(dados, dict):
+        return jsonify({
+            "erro": "Envie um JSON válido."
+        }), 400
 
-    motivos = []
-    pontuacao = 0
+    mensagem = dados.get("mensagem")
 
-    for padrao, explicacao in REGRAS_GOLPE:
-        if re.search(padrao, texto):
-            motivos.append(explicacao)
-            pontuacao += 25
+    if not isinstance(mensagem, str) or not mensagem.strip():
+        return jsonify({
+            "erro": "O campo mensagem deve conter texto."
+        }), 400
 
-    score_final = min(pontuacao, 100)
+    mensagem = mensagem.strip()
 
-    if score_final >= 50:
+    if len(mensagem) > 5000:
+        return jsonify({
+            "erro": "Mensagem muito longa (máximo 5000 caracteres)."
+        }), 400
+
+    if mensagem_insuficiente(mensagem):
+        return jsonify({
+            "score_suspeita": 0.0,
+            "classificacao": "INCONCLUSIVO",
+            "motivos": [
+                "A mensagem não possui informações suficientes "
+                "para uma análise confiável."
+            ],
+            "recomendacao": (
+                "Envie uma mensagem mais completa para "
+                "que a IA possa avaliar possíveis sinais de golpe."
+            )
+        })
+
+    prob = float(modelo.predict_proba([mensagem])[0][1])
+    pontuacao = round(prob * 100, 1)
+
+    if pontuacao >= 70:
         classificacao = "ALTO_RISCO"
-        recomendacao = "CUIDADO! Alta probabilidade de golpe. Não faça transferências nem clique em links."
-    elif score_final >= 25:
+    elif pontuacao >= 50:
         classificacao = "SUSPEITO"
-        recomendacao = "ATENÇÃO: A mensagem contém elementos comuns em fraudes. Confirme antes a identidade de quem enviou."
     else:
         classificacao = "SEGURO"
-        recomendacao = "Nenhum padrão evidente de golpe foi encontrado."
+
+    if classificacao == "ALTO_RISCO":
+        recomendacao = (
+            "A mensagem apresenta sinais relevantes de possível golpe. "
+            "Não envie dinheiro, senhas ou códigos. "
+            "Confirme a situação pelos canais oficiais."
+        )
+    elif classificacao == "SUSPEITO":
+        recomendacao = (
+            "A mensagem apresenta possíveis sinais de fraude. "
+            "Evite clicar em links ou compartilhar dados "
+            "antes de verificar a origem."
+        )
+    else:
+        recomendacao = (
+            "O modelo não identificou sinais fortes de fraude. "
+            "Isso não garante que a mensagem seja segura. "
+            "Confira remetentes, links e solicitações."
+        )
 
     return jsonify({
-        "score_suspeita": score_final,
+        "score_suspeita": pontuacao,
         "classificacao": classificacao,
-        "motivos": motivos,
+        "motivos": [
+            "Análise estatística por TF-IDF e Regressão Logística. "
+            "A pontuação não representa uma probabilidade "
+            "de fraude comprovada."
+        ],
         "recomendacao": recomendacao
     })
 
-if __name__ == '__main__':
-    print("🚀 API Preditiva em Python rodando na porta 5000...")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=False)
